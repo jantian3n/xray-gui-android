@@ -18,6 +18,7 @@ class VlessUriParser {
     'host',
     'path',
     'mode',
+    'alpn',
   };
 
   VlessNode parse(String raw) {
@@ -74,6 +75,7 @@ class VlessUriParser {
       host: (query['host'] ?? '').trim(),
       path: (query['path'] ?? '').trim(),
       mode: (query['mode'] ?? '').trim(),
+      alpn: _parseAlpn(query['alpn'] ?? ''),
       extras: extras,
     );
   }
@@ -105,6 +107,7 @@ class VlessUriParser {
     putIfNotBlank('host', node.host);
     putIfNotBlank('path', node.path);
     putIfNotBlank('mode', node.mode);
+    putIfNotBlank('alpn', _encodeAlpn(node.alpn));
 
     return Uri(
       scheme: 'vless',
@@ -122,5 +125,20 @@ class VlessUriParser {
       return 'xhttp';
     }
     return lower.isEmpty ? 'tcp' : lower;
+  }
+
+  List<String> _parseAlpn(String value) {
+    return value
+        .split(',')
+        .map((String item) => item.trim())
+        .where((String item) => item.isNotEmpty)
+        .toList();
+  }
+
+  String _encodeAlpn(List<String> values) {
+    return values
+        .map((String item) => item.trim())
+        .where((String item) => item.isNotEmpty)
+        .join(',');
   }
 }

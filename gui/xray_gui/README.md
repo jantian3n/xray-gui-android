@@ -1,18 +1,31 @@
 # Xray GUI
 
-Flutter application for the Android Xray client in this repository.
+Android-first Flutter shell for an Xray-based GUI client.
 
 ## Current Status
 
-The app currently includes:
+This directory contains the initial app structure for:
 
-- `vless://` parsing and field-based node editing
-- local node persistence and current-node selection
-- Xray JSON compilation for Android VPN mode
-- Android runtime bridge over method and event channels
-- `VpnService`-driven full-tunnel startup
-- bootstrap geodata installation and background refresh
-- MD3-style bottom navigation for connection, nodes, routing, and logs
+- `vless://` parsing;
+- script-style `client_outbound.json` import;
+- `client_split_patch.json` application for split XHTTP modes;
+- typed profile models;
+- Xray JSON compilation for Android VPN mode or local proxy mode, including
+  `xhttpSettings.downloadSettings` and TLS/REALITY variants;
+- method channel contracts for the Android runtime bridge;
+- a starter home screen for import, preview, and runtime actions.
+
+The Android runtime template is now present and a generated Flutter Android host can be built into a debug APK.
+The current APK is still a dry-run shell until a real `xraymobile.aar` is built and installed.
+
+## Planned Runtime Flow
+
+1. Flutter parses a `vless://` link.
+2. Flutter compiles a profile into Xray JSON.
+3. Flutter sends the config to Android.
+4. Android starts `VpnService`.
+5. Android passes the TUN fd into the embedded Xray runtime.
+6. Logs stream back to Flutter through an event channel.
 
 ## Directory Layout
 
@@ -26,37 +39,50 @@ lib/
       services/
     features/
       home/
-
-android/
-scripts/
-test/
 ```
 
-## Build Flow
+## Android Native Template
 
-1. Fetch Flutter dependencies:
+Native Android files currently live in:
 
-   ```bash
-   flutter pub get
-   ```
+```text
+android_template/
+```
 
-2. Build and install the gomobile AAR from the repository root:
+This is intentional. Once Flutter is available, generate the Android host with:
 
-   ```bash
-   bash ./gui/xray_gui/scripts/build_android_aar.sh
-   bash ./gui/xray_gui/scripts/install_android_aar.sh
-   ```
+```bash
+flutter create --platforms android .
+```
 
-3. Build the Android APK:
+Then merge:
 
-   ```bash
-   bash ./gui/xray_gui/scripts/build_android_apk.sh --debug
-   ```
+```text
+android_template/app/src/main/... -> android/app/src/main/...
+```
+
+Or use:
+
+```bash
+bash ./scripts/merge_android_template.sh
+```
+
+## Native Android Work To Add Next
+
+- build and install `xraymobile.aar`;
+- replace dry-run VPN mode with the real embedded runtime path;
+- verify real traffic forwarding on device.
 
 ## Debugging
 
-See [`../../docs/android-debugging.md`](../../docs/android-debugging.md).
+See [`docs/android-debugging.md`](../../docs/android-debugging.md) for the full run and debug workflow.
 
 ## Build On macOS
 
-See [`../../docs/android-build-macos.md`](../../docs/android-build-macos.md).
+See [`docs/android-build-macos.md`](../../docs/android-build-macos.md) for the end-to-end macOS build path, including:
+
+- Flutter Android host generation
+- gomobile AAR build
+- AAR import into the Android app
+- APK build commands
+- the proxy-safe helper script `scripts/build_android_apk.sh`

@@ -1,6 +1,6 @@
 # Android Debugging Guide
 
-This guide explains how to run and debug the Android-first client in this repository.
+This guide explains how to run and debug the Android-first client after the current source skeleton is copied into a generated Flutter Android host project.
 
 ## Tooling
 
@@ -24,12 +24,36 @@ gomobile version
 adb version
 ```
 
+## Prepare The Android Host
+
+The current repository contains Android native source files under:
+
+```text
+gui/xray_gui/android_template/
+```
+
+Generate the actual Flutter Android host first:
+
+```bash
+cd /Users/yan/Desktop/xray/Xray-core/gui/xray_gui
+flutter create --platforms android .
+```
+
+Then copy or merge the template sources into the generated Android host:
+
+```text
+android_template/app/src/main/...
+-> android/app/src/main/...
+```
+
+If your package name is not `com.example.xray_gui`, update the Kotlin package declarations and manifest names accordingly.
+
 ## Run The App
 
 Fetch dependencies:
 
 ```bash
-cd gui/xray_gui
+cd /Users/yan/Desktop/xray/Xray-core/gui/xray_gui
 flutter pub get
 ```
 
@@ -72,7 +96,7 @@ Most useful initial breakpoints:
 - VPN permission callback;
 - foreground service start path;
 - geodata checksum verification;
-- TUN establish path.
+- dry-run TUN establish path.
 
 ## Logcat Filters
 
@@ -204,11 +228,11 @@ Check:
 3. verify VPN permission flow;
 4. verify foreground service start and log streaming;
 5. verify geodata updater;
-6. only then inspect gomobile runtime startup.
+6. only then integrate gomobile or `libXray` runtime.
 
 ## After Gomobile Integration
 
-When the Go binding is present, add these extra checks:
+Once the Go binding is added, add these extra checks:
 
 ```bash
 adb logcat | rg "xray|gomobile|XrayGui"
@@ -222,4 +246,4 @@ Then confirm:
 
 - TUN fd is passed into the Go runtime;
 - Xray starts with the generated `config.json`;
-- traffic begins to flow through the established VPN.
+- traffic begins to flow after routes are expanded beyond the current dry-run setup.

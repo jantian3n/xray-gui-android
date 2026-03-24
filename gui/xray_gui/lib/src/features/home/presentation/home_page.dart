@@ -8,14 +8,16 @@ import '../../../core/models/profile.dart';
 import '../../../core/models/routing_preset.dart';
 import '../../../core/models/runtime_mode.dart';
 import '../../../core/models/vless_node.dart';
+import '../../../core/models/xhttp_download_settings.dart';
 import '../../../core/services/method_channel_runtime_bridge.dart';
+import '../../../core/services/node_importer.dart';
 import '../../../core/services/runtime_bridge.dart';
 import '../../../core/services/session_draft_store.dart';
-import '../../../core/services/vless_uri_parser.dart';
 import '../../../core/services/xray_config_compiler.dart';
 
 enum _ImportAction {
   clipboard,
+  clipboardPatch,
   manual,
 }
 
@@ -39,7 +41,7 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  final VlessUriParser _parser = VlessUriParser();
+  final NodeImporter _nodeImporter = NodeImporter();
   final XrayConfigCompiler _compiler = XrayConfigCompiler();
   final RuntimeBridge _runtimeBridge = MethodChannelRuntimeBridge();
   final SessionDraftStore _draftStore = SessionDraftStore();
@@ -120,9 +122,8 @@ class _HomePageState extends State<HomePage> {
   }
 
   Profile _buildProfileFromDraft(StoredNodeDraft draft) {
-    final VlessNode node = _parser.parse(draft.link.trim());
     return Profile.fromNode(
-      node,
+      draft.node,
       routingPreset: draft.routingPreset,
       runtimeMode: draft.runtimeMode,
     );
@@ -231,32 +232,33 @@ class _HomePageState extends State<HomePage> {
   }
 
   StoredNodeDraft _createDraft(
-    String link, {
+    VlessNode node, {
     StoredNodeDraft? base,
   }) {
-    final String normalizedLink = link.trim();
-    if (normalizedLink.isEmpty) {
-      throw StateError('请先输入一个 vless:// 节点链接。');
+    if (node.address.trim().isEmpty) {
+      throw StateError('请先填写服务器地址。');
     }
-
-    _parser.parse(normalizedLink);
+    if (node.id.trim().isEmpty) {
+      throw StateError('请先填写 UUID。');
+    }
 
     return StoredNodeDraft(
       id: base?.id ?? 'node-${DateTime.now().microsecondsSinceEpoch}',
-      link: normalizedLink,
+      node: node,
       routingPreset: base?.routingPreset ?? _routingPreset,
       runtimeMode: base?.runtimeMode ?? _runtimeMode,
     );
   }
 
-  Future<void> _addNodeFromLink(String link) async {
+  Future<void> _addNodeFromRaw(String raw) async {
     if (_isRuntimeLocked) {
       _showSnackBar('运行中请先停止连接，再导入新节点。');
       return;
     }
 
     try {
-      final StoredNodeDraft draft = _createDraft(link);
+      final VlessNode node = _nodeImporter.parseNode(raw);
+      final StoredNodeDraft draft = _createDraft(node);
       final List<StoredNodeDraft> nodes = <StoredNodeDraft>[
         draft,
         ..._savedNodes,
@@ -280,12 +282,12 @@ class _HomePageState extends State<HomePage> {
       return;
     }
 
-    final String? result = await _openNodeEditorSheet(
+    final VlessNode? result = await _openNodeEditorSheet(
       title: '编辑节点',
-      initialLink: draft.link,
       actionLabel: '保存修改',
+      initialNode: draft.node,
     );
-    if (!mounted || result == null || result.isEmpty) {
+    if (!mounted || result == null) {
       return;
     }
 
@@ -403,29 +405,70 @@ class _HomePageState extends State<HomePage> {
     final ClipboardData? data = await Clipboard.getData(Clipboard.kTextPlain);
     final String text = data?.text?.trim() ?? '';
     if (text.isEmpty) {
-      _showSnackBar('剪贴板里没有可用的节点链接。');
+      _showSnackBar('剪贴板里没有可用的节点内容。');
       return;
     }
 
-    await _addNodeFromLink(text);
+    await _addNodeFromRaw(text);
   }
 
-  Future<String?> _openNodeEditorSheet({
+  Future<void> _applyPatchFromClipboard() async {
+    final StoredNodeDraft? draft = _selectedDraft;
+    if (draft == null) {
+      _showSnackBar('请先选中一个节点，再应用 split patch。');
+      return;
+    }
+    if (_isRuntimeLocked) {
+      _showSnackBar('运行中请先停止连接，再应用补丁。');
+      return;
+    }
+
+    final ClipboardData? data = await Clipboard.getData(Clipboard.kTextPlain);
+    final String text = data?.text?.trim() ?? '';
+    if (text.isEmpty) {
+      _showSnackBar('剪贴板里没有可用的补丁内容。');
+      return;
+    }
+
+    try {
+      final VlessNode updatedNode = _nodeImporter.applyPatch(draft.node, text);
+      final StoredNodeDraft updatedDraft = _createDraft(
+        updatedNode,
+        base: draft,
+      );
+      final List<StoredNodeDraft> nodes = _savedNodes
+          .map(
+            (StoredNodeDraft node) => node.id == draft.id ? updatedDraft : node,
+          )
+          .toList();
+
+      await _commitCollection(
+        nodes: nodes,
+        selectedNodeId: updatedDraft.id,
+        successStatus: 'profile-ready',
+        showSnackOnError: true,
+      );
+      _showSnackBar('split patch 已应用到当前节点。');
+    } catch (error) {
+      _showSnackBar(error.toString());
+    }
+  }
+
+  Future<VlessNode?> _openNodeEditorSheet({
     required String title,
     required String actionLabel,
-    String initialLink = '',
+    VlessNode? initialNode,
   }) async {
-    return showModalBottomSheet<String>(
+    return showModalBottomSheet<VlessNode>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       showDragHandle: true,
       builder: (BuildContext context) {
         return _NodeEditorSheet(
-          parser: _parser,
           title: title,
           actionLabel: actionLabel,
-          initialLink: initialLink,
+          initialNode: initialNode,
         );
       },
     );
@@ -436,15 +479,38 @@ class _HomePageState extends State<HomePage> {
       case _ImportAction.clipboard:
         await _importFromClipboard();
         break;
+      case _ImportAction.clipboardPatch:
+        await _applyPatchFromClipboard();
+        break;
       case _ImportAction.manual:
-        final String? result = await _openNodeEditorSheet(
+        final VlessNode? result = await _openNodeEditorSheet(
           title: '添加节点',
           actionLabel: '保存并导入',
         );
-        if (!mounted || result == null || result.isEmpty) {
+        if (!mounted || result == null) {
           return;
         }
-        await _addNodeFromLink(result);
+        if (_isRuntimeLocked) {
+          _showSnackBar('运行中请先停止连接，再导入新节点。');
+          return;
+        }
+        try {
+          final StoredNodeDraft draft = _createDraft(result);
+          final List<StoredNodeDraft> nodes = <StoredNodeDraft>[
+            draft,
+            ..._savedNodes,
+          ];
+
+          await _commitCollection(
+            nodes: nodes,
+            selectedNodeId: draft.id,
+            successStatus: 'profile-ready',
+            showSnackOnError: true,
+          );
+          _showSnackBar('节点已导入并设为当前节点。');
+        } catch (error) {
+          _showSnackBar(error.toString());
+        }
         break;
     }
   }
@@ -526,7 +592,7 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    final VlessNode? node = _profile?.node ?? _tryParseNode(_selectedDraft);
+    final VlessNode? node = _profile?.node ?? _selectedDraft?.node;
     final _HomeTab currentTab = _HomeTab.values[_selectedTabIndex];
 
     return Scaffold(
@@ -646,7 +712,7 @@ class _HomePageState extends State<HomePage> {
             ),
             const SizedBox(height: 8),
             Text(
-              '面向 Android 的 Xray 控制面板，支持 VLESS、REALITY、XHTTP 和国内外分流预设。',
+              '面向 Android 的 Xray 控制面板，支持单机 XHTTP、分离上下行 XHTTP，以及脚本导出的 REALITY/TLS 模式。',
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: colors.onSurfaceVariant,
               ),
@@ -683,6 +749,11 @@ class _HomePageState extends State<HomePage> {
                   _InfoChip(
                     icon: Icons.swap_horiz_outlined,
                     label: node.network.toUpperCase(),
+                  ),
+                if (node?.downloadSettings != null)
+                  const _InfoChip(
+                    icon: Icons.call_split_outlined,
+                    label: 'SPLIT',
                   ),
               ],
             ),
@@ -725,7 +796,7 @@ class _HomePageState extends State<HomePage> {
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
-                  '点击“导入节点”，可以从剪贴板直接读取 vless:// 链接。',
+                  '点击“导入节点”，可以从剪贴板读取 `vless://`、`client_outbound.json`，或对当前节点应用 `client_split_patch.json`。',
                   style: theme.textTheme.bodyMedium,
                 ),
               )
@@ -768,6 +839,11 @@ class _HomePageState extends State<HomePage> {
                           icon: Icons.swap_horiz_outlined,
                           label: _draftNetwork(selectedDraft),
                         ),
+                        if (selectedDraft.node.downloadSettings != null)
+                          const _InfoChip(
+                            icon: Icons.call_split_outlined,
+                            label: 'SPLIT',
+                          ),
                       ],
                     ),
                     const SizedBox(height: 16),
@@ -832,14 +908,21 @@ class _HomePageState extends State<HomePage> {
                   onPressed: _isRuntimeLocked
                       ? null
                       : () => _handleImportAction(_ImportAction.clipboard),
-                  child: const Text('从剪贴板导入'),
+                  child: const Text('导入链接 / outbound JSON'),
+                ),
+                MenuItemButton(
+                  leadingIcon: const Icon(Icons.merge_type_outlined),
+                  onPressed: _isRuntimeLocked || !_hasSelection
+                      ? null
+                      : () => _handleImportAction(_ImportAction.clipboardPatch),
+                  child: const Text('应用 split patch'),
                 ),
                 MenuItemButton(
                   leadingIcon: const Icon(Icons.edit_note_outlined),
                   onPressed: _isRuntimeLocked
                       ? null
                       : () => _handleImportAction(_ImportAction.manual),
-                  child: const Text('手动输入链接'),
+                  child: const Text('手动输入 / 编辑'),
                 ),
               ],
               builder: (
@@ -1238,44 +1321,27 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  VlessNode? _tryParseNode(StoredNodeDraft? draft) {
-    if (draft == null) {
-      return null;
-    }
-
-    try {
-      return _parser.parse(draft.link);
-    } catch (_) {
-      return null;
-    }
-  }
-
   String _draftTitle(StoredNodeDraft draft) {
-    final VlessNode? node = _tryParseNode(draft);
-    if (node == null) {
-      return '无法解析的节点';
-    }
+    final VlessNode node = draft.node;
     return node.name.trim().isEmpty
         ? '${node.address}:${node.port}'
         : node.name.trim();
   }
 
   String _draftSubtitle(StoredNodeDraft draft) {
-    final VlessNode? node = _tryParseNode(draft);
-    if (node == null) {
-      return draft.link;
-    }
-    return '${node.address}:${node.port}';
+    final VlessNode node = draft.node;
+    final String splitSuffix = node.downloadSettings == null
+        ? ''
+        : ' -> ${node.downloadSettings!.address}:${node.downloadSettings!.port}';
+    return '${node.address}:${node.port}$splitSuffix';
   }
 
   String _draftSecurity(StoredNodeDraft draft) {
-    final VlessNode? node = _tryParseNode(draft);
-    return node?.security.toUpperCase() ?? 'UNKNOWN';
+    return draft.node.security.toUpperCase();
   }
 
   String _draftNetwork(StoredNodeDraft draft) {
-    final VlessNode? node = _tryParseNode(draft);
-    return node?.network.toUpperCase() ?? 'UNKNOWN';
+    return draft.node.network.toUpperCase();
   }
 
   String _statusLabel(String status) {
@@ -1356,16 +1422,14 @@ class _CompiledDraft {
 
 class _NodeEditorSheet extends StatefulWidget {
   const _NodeEditorSheet({
-    required this.parser,
     required this.title,
     required this.actionLabel,
-    required this.initialLink,
+    this.initialNode,
   });
 
-  final VlessUriParser parser;
   final String title;
   final String actionLabel;
-  final String initialLink;
+  final VlessNode? initialNode;
 
   @override
   State<_NodeEditorSheet> createState() => _NodeEditorSheetState();
@@ -1389,18 +1453,37 @@ class _NodeEditorSheetState extends State<_NodeEditorSheet> {
   late final TextEditingController _hostController;
   late final TextEditingController _pathController;
   late final TextEditingController _modeController;
+  late final TextEditingController _alpnController;
+  late final TextEditingController _downloadAddressController;
+  late final TextEditingController _downloadPortController;
+  late final TextEditingController _downloadServerNameController;
+  late final TextEditingController _downloadFingerprintController;
+  late final TextEditingController _downloadPublicKeyController;
+  late final TextEditingController _downloadShortIdController;
+  late final TextEditingController _downloadSpiderXController;
+  late final TextEditingController _downloadHostController;
+  late final TextEditingController _downloadPathController;
+  late final TextEditingController _downloadModeController;
+  late final TextEditingController _downloadAlpnController;
   late final Map<String, String> _extras;
 
   late final List<String> _networkOptions;
   late final List<String> _securityOptions;
+  late final List<String> _downloadNetworkOptions;
+  late final List<String> _downloadSecurityOptions;
   late String _selectedNetwork;
   late String _selectedSecurity;
+  late String _selectedDownloadNetwork;
+  late String _selectedDownloadSecurity;
+  late bool _enableDownloadSettings;
 
   @override
   void initState() {
     super.initState();
     _initialNode = _buildInitialNode();
     _extras = Map<String, String>.from(_initialNode.extras);
+    final XhttpDownloadSettings? initialDownload =
+        _initialNode.downloadSettings;
 
     _networkOptions = _buildOptions(
       const <String>['xhttp', 'tcp', 'grpc', 'ws'],
@@ -1410,9 +1493,21 @@ class _NodeEditorSheetState extends State<_NodeEditorSheet> {
       const <String>['reality', 'tls', 'none'],
       _initialNode.security,
     );
+    _downloadNetworkOptions = _buildOptions(
+      const <String>['xhttp'],
+      initialDownload?.network ?? 'xhttp',
+    );
+    _downloadSecurityOptions = _buildOptions(
+      const <String>['reality', 'tls', 'none'],
+      initialDownload?.security ?? _initialNode.security,
+    );
 
     _selectedNetwork = _initialNode.network;
     _selectedSecurity = _initialNode.security;
+    _selectedDownloadNetwork = initialDownload?.network ?? 'xhttp';
+    _selectedDownloadSecurity =
+        initialDownload?.security ?? _initialNode.security;
+    _enableDownloadSettings = initialDownload != null;
 
     _nameController = TextEditingController(text: _initialNode.name);
     _addressController = TextEditingController(text: _initialNode.address);
@@ -1431,6 +1526,30 @@ class _NodeEditorSheetState extends State<_NodeEditorSheet> {
     _hostController = TextEditingController(text: _initialNode.host);
     _pathController = TextEditingController(text: _initialNode.path);
     _modeController = TextEditingController(text: _initialNode.mode);
+    _alpnController = TextEditingController(text: _initialNode.alpn.join(','));
+    _downloadAddressController =
+        TextEditingController(text: initialDownload?.address ?? '');
+    _downloadPortController = TextEditingController(
+      text: (initialDownload?.port ?? _initialNode.port).toString(),
+    );
+    _downloadServerNameController =
+        TextEditingController(text: initialDownload?.serverName ?? '');
+    _downloadFingerprintController =
+        TextEditingController(text: initialDownload?.fingerprint ?? '');
+    _downloadPublicKeyController =
+        TextEditingController(text: initialDownload?.publicKey ?? '');
+    _downloadShortIdController =
+        TextEditingController(text: initialDownload?.shortId ?? '');
+    _downloadSpiderXController =
+        TextEditingController(text: initialDownload?.spiderX ?? '');
+    _downloadHostController =
+        TextEditingController(text: initialDownload?.host ?? '');
+    _downloadPathController =
+        TextEditingController(text: initialDownload?.path ?? '');
+    _downloadModeController =
+        TextEditingController(text: initialDownload?.mode ?? '');
+    _downloadAlpnController =
+        TextEditingController(text: initialDownload?.alpn.join(',') ?? '');
   }
 
   @override
@@ -1449,6 +1568,18 @@ class _NodeEditorSheetState extends State<_NodeEditorSheet> {
     _hostController.dispose();
     _pathController.dispose();
     _modeController.dispose();
+    _alpnController.dispose();
+    _downloadAddressController.dispose();
+    _downloadPortController.dispose();
+    _downloadServerNameController.dispose();
+    _downloadFingerprintController.dispose();
+    _downloadPublicKeyController.dispose();
+    _downloadShortIdController.dispose();
+    _downloadSpiderXController.dispose();
+    _downloadHostController.dispose();
+    _downloadPathController.dispose();
+    _downloadModeController.dispose();
+    _downloadAlpnController.dispose();
     super.dispose();
   }
 
@@ -1456,8 +1587,17 @@ class _NodeEditorSheetState extends State<_NodeEditorSheet> {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final double bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    final bool showSecurityFields = _selectedSecurity.toLowerCase() != 'none';
     final bool showRealityFields = _selectedSecurity.toLowerCase() == 'reality';
+    final bool showTlsFields = _selectedSecurity.toLowerCase() == 'tls';
     final bool showXhttpFields = _selectedNetwork.toLowerCase() == 'xhttp';
+    final bool showDownloadSection = _enableDownloadSettings && showXhttpFields;
+    final bool showDownloadSecurityFields = showDownloadSection &&
+        _selectedDownloadSecurity.toLowerCase() != 'none';
+    final bool showDownloadRealityFields = showDownloadSection &&
+        _selectedDownloadSecurity.toLowerCase() == 'reality';
+    final bool showDownloadTlsFields =
+        showDownloadSection && _selectedDownloadSecurity.toLowerCase() == 'tls';
 
     return AnimatedPadding(
       duration: const Duration(milliseconds: 180),
@@ -1480,7 +1620,7 @@ class _NodeEditorSheetState extends State<_NodeEditorSheet> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      '直接编辑常用字段。保存后会重新生成 vless:// 节点链接，并自动刷新当前节点配置。',
+                      '直接编辑节点字段。基础分享链接会继续保留在上传侧参数里，split 模式的 downloadSettings 也会一并保存。',
                       style: theme.textTheme.bodyMedium,
                     ),
                   ],
@@ -1512,7 +1652,7 @@ class _NodeEditorSheetState extends State<_NodeEditorSheet> {
                               const SizedBox(height: 12),
                               TextFormField(
                                 controller: _addressController,
-                                autofocus: widget.initialLink.trim().isEmpty,
+                                autofocus: widget.initialNode == null,
                                 textInputAction: TextInputAction.next,
                                 decoration: const InputDecoration(
                                   labelText: '服务器地址',
@@ -1586,6 +1726,10 @@ class _NodeEditorSheetState extends State<_NodeEditorSheet> {
                                   }
                                   setState(() {
                                     _selectedNetwork = value;
+                                    if (_selectedNetwork.toLowerCase() !=
+                                        'xhttp') {
+                                      _enableDownloadSettings = false;
+                                    }
                                   });
                                 },
                               ),
@@ -1632,10 +1776,10 @@ class _NodeEditorSheetState extends State<_NodeEditorSheet> {
                             ],
                           ),
                         ),
-                        if (showRealityFields) ...<Widget>[
+                        if (showSecurityFields) ...<Widget>[
                           const SizedBox(height: 16),
                           _NodeEditorSection(
-                            title: 'REALITY',
+                            title: showRealityFields ? 'REALITY' : 'TLS',
                             child: Column(
                               children: <Widget>[
                                 TextFormField(
@@ -1645,9 +1789,9 @@ class _NodeEditorSheetState extends State<_NodeEditorSheet> {
                                     labelText: 'SNI / serverName',
                                   ),
                                   validator: (String? value) {
-                                    if (showRealityFields &&
+                                    if (showSecurityFields &&
                                         (value ?? '').trim().isEmpty) {
-                                      return 'REALITY 需要 serverName';
+                                      return '当前安全类型需要 serverName';
                                     }
                                     return null;
                                   },
@@ -1660,44 +1804,55 @@ class _NodeEditorSheetState extends State<_NodeEditorSheet> {
                                     labelText: 'Fingerprint',
                                   ),
                                   validator: (String? value) {
-                                    if (showRealityFields &&
+                                    if (showSecurityFields &&
                                         (value ?? '').trim().isEmpty) {
-                                      return 'REALITY 需要 fingerprint';
+                                      return '当前安全类型需要 fingerprint';
                                     }
                                     return null;
                                   },
                                 ),
                                 const SizedBox(height: 12),
-                                TextFormField(
-                                  controller: _publicKeyController,
-                                  textInputAction: TextInputAction.next,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Public Key',
+                                if (showTlsFields)
+                                  TextFormField(
+                                    controller: _alpnController,
+                                    textInputAction: TextInputAction.next,
+                                    decoration: const InputDecoration(
+                                      labelText: 'ALPN',
+                                      hintText: '例如：h2 或 h2,http/1.1',
+                                    ),
                                   ),
-                                  validator: (String? value) {
-                                    if (showRealityFields &&
-                                        (value ?? '').trim().isEmpty) {
-                                      return 'REALITY 需要 public key';
-                                    }
-                                    return null;
-                                  },
-                                ),
-                                const SizedBox(height: 12),
-                                TextFormField(
-                                  controller: _shortIdController,
-                                  textInputAction: TextInputAction.next,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Short ID',
+                                if (showRealityFields) ...<Widget>[
+                                  TextFormField(
+                                    controller: _publicKeyController,
+                                    textInputAction: TextInputAction.next,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Public Key',
+                                    ),
+                                    validator: (String? value) {
+                                      if (showRealityFields &&
+                                          (value ?? '').trim().isEmpty) {
+                                        return 'REALITY 需要 public key';
+                                      }
+                                      return null;
+                                    },
                                   ),
-                                ),
-                                const SizedBox(height: 12),
-                                TextFormField(
-                                  controller: _spiderXController,
-                                  textInputAction: TextInputAction.next,
-                                  decoration: const InputDecoration(
-                                    labelText: 'SpiderX',
+                                  const SizedBox(height: 12),
+                                  TextFormField(
+                                    controller: _shortIdController,
+                                    textInputAction: TextInputAction.next,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Short ID',
+                                    ),
                                   ),
-                                ),
+                                  const SizedBox(height: 12),
+                                  TextFormField(
+                                    controller: _spiderXController,
+                                    textInputAction: TextInputAction.next,
+                                    decoration: const InputDecoration(
+                                      labelText: 'SpiderX',
+                                    ),
+                                  ),
+                                ],
                               ],
                             ),
                           ),
@@ -1738,6 +1893,229 @@ class _NodeEditorSheetState extends State<_NodeEditorSheet> {
                                     labelText: 'Mode',
                                   ),
                                 ),
+                              ],
+                            ),
+                          ),
+                        ],
+                        if (showXhttpFields) ...<Widget>[
+                          const SizedBox(height: 16),
+                          _NodeEditorSection(
+                            title: '分离下行',
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: <Widget>[
+                                SwitchListTile.adaptive(
+                                  contentPadding: EdgeInsets.zero,
+                                  value: _enableDownloadSettings,
+                                  title: const Text('启用 downloadSettings'),
+                                  subtitle: const Text(
+                                    '用于 IPv6 上行 + IPv4 下行、双 VPS、CDN + VPS 这类 split 模式。',
+                                  ),
+                                  onChanged: (bool value) {
+                                    setState(() {
+                                      _enableDownloadSettings = value;
+                                      if (value) {
+                                        _syncDownloadDefaultsFromUpload();
+                                      }
+                                    });
+                                  },
+                                ),
+                                if (showDownloadSection) ...<Widget>[
+                                  const SizedBox(height: 12),
+                                  TextFormField(
+                                    controller: _downloadAddressController,
+                                    textInputAction: TextInputAction.next,
+                                    decoration: const InputDecoration(
+                                      labelText: '下行地址',
+                                      hintText: 'IPv4、IPv6 或域名',
+                                    ),
+                                    validator: (String? value) {
+                                      if (showDownloadSection &&
+                                          (value ?? '').trim().isEmpty) {
+                                        return '请输入下行地址';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                  const SizedBox(height: 12),
+                                  TextFormField(
+                                    controller: _downloadPortController,
+                                    keyboardType: TextInputType.number,
+                                    textInputAction: TextInputAction.next,
+                                    decoration: const InputDecoration(
+                                      labelText: '下行端口',
+                                    ),
+                                    validator: (String? value) {
+                                      if (!showDownloadSection) {
+                                        return null;
+                                      }
+                                      final int? port =
+                                          int.tryParse((value ?? '').trim());
+                                      if (port == null ||
+                                          port <= 0 ||
+                                          port > 65535) {
+                                        return '请输入有效下行端口';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                  const SizedBox(height: 12),
+                                  DropdownButtonFormField<String>(
+                                    initialValue: _selectedDownloadNetwork,
+                                    decoration: const InputDecoration(
+                                      labelText: '下行传输协议',
+                                    ),
+                                    items: _downloadNetworkOptions
+                                        .map(
+                                          (String value) =>
+                                              DropdownMenuItem<String>(
+                                            value: value,
+                                            child: Text(value.toUpperCase()),
+                                          ),
+                                        )
+                                        .toList(),
+                                    onChanged: (String? value) {
+                                      if (value == null) {
+                                        return;
+                                      }
+                                      setState(() {
+                                        _selectedDownloadNetwork = value;
+                                      });
+                                    },
+                                  ),
+                                  const SizedBox(height: 12),
+                                  DropdownButtonFormField<String>(
+                                    initialValue: _selectedDownloadSecurity,
+                                    decoration: const InputDecoration(
+                                      labelText: '下行安全类型',
+                                    ),
+                                    items: _downloadSecurityOptions
+                                        .map(
+                                          (String value) =>
+                                              DropdownMenuItem<String>(
+                                            value: value,
+                                            child: Text(value.toUpperCase()),
+                                          ),
+                                        )
+                                        .toList(),
+                                    onChanged: (String? value) {
+                                      if (value == null) {
+                                        return;
+                                      }
+                                      setState(() {
+                                        _selectedDownloadSecurity = value;
+                                      });
+                                    },
+                                  ),
+                                  if (showDownloadSecurityFields) ...<Widget>[
+                                    const SizedBox(height: 12),
+                                    TextFormField(
+                                      controller: _downloadServerNameController,
+                                      textInputAction: TextInputAction.next,
+                                      decoration: const InputDecoration(
+                                        labelText: '下行 SNI / serverName',
+                                      ),
+                                      validator: (String? value) {
+                                        if (showDownloadSecurityFields &&
+                                            (value ?? '').trim().isEmpty) {
+                                          return '下行安全类型需要 serverName';
+                                        }
+                                        return null;
+                                      },
+                                    ),
+                                    const SizedBox(height: 12),
+                                    TextFormField(
+                                      controller:
+                                          _downloadFingerprintController,
+                                      textInputAction: TextInputAction.next,
+                                      decoration: const InputDecoration(
+                                        labelText: '下行 Fingerprint',
+                                      ),
+                                      validator: (String? value) {
+                                        if (showDownloadSecurityFields &&
+                                            (value ?? '').trim().isEmpty) {
+                                          return '下行安全类型需要 fingerprint';
+                                        }
+                                        return null;
+                                      },
+                                    ),
+                                  ],
+                                  if (showDownloadTlsFields) ...<Widget>[
+                                    const SizedBox(height: 12),
+                                    TextFormField(
+                                      controller: _downloadAlpnController,
+                                      textInputAction: TextInputAction.next,
+                                      decoration: const InputDecoration(
+                                        labelText: '下行 ALPN',
+                                        hintText: '例如：h2',
+                                      ),
+                                    ),
+                                  ],
+                                  if (showDownloadRealityFields) ...<Widget>[
+                                    const SizedBox(height: 12),
+                                    TextFormField(
+                                      controller: _downloadPublicKeyController,
+                                      textInputAction: TextInputAction.next,
+                                      decoration: const InputDecoration(
+                                        labelText: '下行 Public Key',
+                                      ),
+                                      validator: (String? value) {
+                                        if (showDownloadRealityFields &&
+                                            (value ?? '').trim().isEmpty) {
+                                          return '下行 REALITY 需要 public key';
+                                        }
+                                        return null;
+                                      },
+                                    ),
+                                    const SizedBox(height: 12),
+                                    TextFormField(
+                                      controller: _downloadShortIdController,
+                                      textInputAction: TextInputAction.next,
+                                      decoration: const InputDecoration(
+                                        labelText: '下行 Short ID',
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    TextFormField(
+                                      controller: _downloadSpiderXController,
+                                      textInputAction: TextInputAction.next,
+                                      decoration: const InputDecoration(
+                                        labelText: '下行 SpiderX',
+                                      ),
+                                    ),
+                                  ],
+                                  const SizedBox(height: 12),
+                                  TextFormField(
+                                    controller: _downloadHostController,
+                                    textInputAction: TextInputAction.next,
+                                    decoration: const InputDecoration(
+                                      labelText: '下行 Host',
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  TextFormField(
+                                    controller: _downloadPathController,
+                                    textInputAction: TextInputAction.next,
+                                    decoration: const InputDecoration(
+                                      labelText: '下行 Path',
+                                    ),
+                                    validator: (String? value) {
+                                      if (showDownloadSection &&
+                                          (value ?? '').trim().isEmpty) {
+                                        return '下行 XHTTP 需要 path';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                  const SizedBox(height: 12),
+                                  TextFormField(
+                                    controller: _downloadModeController,
+                                    textInputAction: TextInputAction.done,
+                                    decoration: const InputDecoration(
+                                      labelText: '下行 Mode',
+                                    ),
+                                  ),
+                                ],
                               ],
                             ),
                           ),
@@ -1790,15 +2168,17 @@ class _NodeEditorSheetState extends State<_NodeEditorSheet> {
       host: _hostController.text.trim(),
       path: _pathController.text.trim(),
       mode: _modeController.text.trim(),
+      alpn: _csvToList(_alpnController.text),
+      downloadSettings: _buildDownloadSettings(port),
       extras: _extras,
     );
 
-    Navigator.of(context).pop(widget.parser.encode(node));
+    Navigator.of(context).pop(node);
   }
 
   VlessNode _buildInitialNode() {
-    if (widget.initialLink.trim().isNotEmpty) {
-      return widget.parser.parse(widget.initialLink);
+    if (widget.initialNode != null) {
+      return widget.initialNode!;
     }
 
     return const VlessNode(
@@ -1820,6 +2200,74 @@ class _NodeEditorSheetState extends State<_NodeEditorSheet> {
       options.add(normalized);
     }
     return options;
+  }
+
+  void _syncDownloadDefaultsFromUpload() {
+    if (_downloadPortController.text.trim().isEmpty) {
+      _downloadPortController.text = _portController.text.trim().isEmpty
+          ? '443'
+          : _portController.text.trim();
+    }
+    if (_downloadPathController.text.trim().isEmpty) {
+      _downloadPathController.text = _pathController.text.trim();
+    }
+    if (_downloadModeController.text.trim().isEmpty) {
+      _downloadModeController.text = _modeController.text.trim();
+    }
+    if (_downloadHostController.text.trim().isEmpty) {
+      _downloadHostController.text = _hostController.text.trim();
+    }
+    if (_downloadServerNameController.text.trim().isEmpty) {
+      _downloadServerNameController.text = _serverNameController.text.trim();
+    }
+    if (_downloadFingerprintController.text.trim().isEmpty) {
+      _downloadFingerprintController.text = _fingerprintController.text.trim();
+    }
+    if (_downloadPublicKeyController.text.trim().isEmpty) {
+      _downloadPublicKeyController.text = _publicKeyController.text.trim();
+    }
+    if (_downloadShortIdController.text.trim().isEmpty) {
+      _downloadShortIdController.text = _shortIdController.text.trim();
+    }
+    if (_downloadSpiderXController.text.trim().isEmpty) {
+      _downloadSpiderXController.text = _spiderXController.text.trim();
+    }
+    if (_downloadAlpnController.text.trim().isEmpty) {
+      _downloadAlpnController.text = _alpnController.text.trim();
+    }
+    _selectedDownloadSecurity = _selectedSecurity.trim();
+  }
+
+  XhttpDownloadSettings? _buildDownloadSettings(int fallbackPort) {
+    if (!_enableDownloadSettings) {
+      return null;
+    }
+
+    final int port =
+        int.tryParse(_downloadPortController.text.trim()) ?? fallbackPort;
+    return XhttpDownloadSettings(
+      address: _downloadAddressController.text.trim(),
+      port: port,
+      network: _selectedDownloadNetwork.trim(),
+      security: _selectedDownloadSecurity.trim(),
+      serverName: _downloadServerNameController.text.trim(),
+      fingerprint: _downloadFingerprintController.text.trim(),
+      publicKey: _downloadPublicKeyController.text.trim(),
+      shortId: _downloadShortIdController.text.trim(),
+      spiderX: _downloadSpiderXController.text.trim(),
+      host: _downloadHostController.text.trim(),
+      path: _downloadPathController.text.trim(),
+      mode: _downloadModeController.text.trim(),
+      alpn: _csvToList(_downloadAlpnController.text),
+    );
+  }
+
+  List<String> _csvToList(String raw) {
+    return raw
+        .split(',')
+        .map((String item) => item.trim())
+        .where((String item) => item.isNotEmpty)
+        .toList();
   }
 }
 

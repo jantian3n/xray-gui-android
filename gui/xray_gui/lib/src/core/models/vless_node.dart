@@ -1,3 +1,7 @@
+import 'xhttp_download_settings.dart';
+
+const Object _downloadSettingsUnset = Object();
+
 class VlessNode {
   const VlessNode({
     required this.name,
@@ -16,6 +20,8 @@ class VlessNode {
     this.host = '',
     this.path = '',
     this.mode = '',
+    this.alpn = const <String>[],
+    this.downloadSettings,
     this.extras = const <String, String>{},
   });
 
@@ -35,9 +41,13 @@ class VlessNode {
   final String host;
   final String path;
   final String mode;
+  final List<String> alpn;
+  final XhttpDownloadSettings? downloadSettings;
   final Map<String, String> extras;
 
   bool get isReality => security.toLowerCase() == 'reality';
+
+  bool get isTls => security.toLowerCase() == 'tls';
 
   bool get isXhttp {
     final value = network.toLowerCase();
@@ -61,6 +71,8 @@ class VlessNode {
     String? host,
     String? path,
     String? mode,
+    List<String>? alpn,
+    Object? downloadSettings = _downloadSettingsUnset,
     Map<String, String>? extras,
   }) {
     return VlessNode(
@@ -80,6 +92,10 @@ class VlessNode {
       host: host ?? this.host,
       path: path ?? this.path,
       mode: mode ?? this.mode,
+      alpn: alpn ?? this.alpn,
+      downloadSettings: downloadSettings == _downloadSettingsUnset
+          ? this.downloadSettings
+          : downloadSettings as XhttpDownloadSettings?,
       extras: extras ?? this.extras,
     );
   }
@@ -102,7 +118,63 @@ class VlessNode {
       'host': host,
       'path': path,
       'mode': mode,
+      'alpn': alpn,
+      'downloadSettings': downloadSettings?.toJson(),
       'extras': extras,
     };
+  }
+
+  factory VlessNode.fromJson(Map<String, dynamic> json) {
+    return VlessNode(
+      name: json['name'] as String? ?? '',
+      address: json['address'] as String? ?? '',
+      port: (json['port'] as num?)?.toInt() ?? 443,
+      id: json['id'] as String? ?? '',
+      network: json['network'] as String? ?? 'tcp',
+      security: json['security'] as String? ?? 'none',
+      encryption: json['encryption'] as String? ?? 'none',
+      flow: json['flow'] as String? ?? '',
+      serverName: json['serverName'] as String? ?? '',
+      fingerprint: json['fingerprint'] as String? ?? '',
+      publicKey: json['publicKey'] as String? ?? '',
+      shortId: json['shortId'] as String? ?? '',
+      spiderX: json['spiderX'] as String? ?? '',
+      host: json['host'] as String? ?? '',
+      path: json['path'] as String? ?? '',
+      mode: json['mode'] as String? ?? '',
+      alpn: _parseStringList(json['alpn']),
+      downloadSettings: json['downloadSettings'] is Map
+          ? XhttpDownloadSettings.fromJson(
+              Map<String, dynamic>.from(
+                json['downloadSettings'] as Map<dynamic, dynamic>,
+              ),
+            )
+          : null,
+      extras: json['extras'] is Map
+          ? Map<String, String>.from(
+              (json['extras'] as Map<dynamic, dynamic>).map(
+                (dynamic key, dynamic value) =>
+                    MapEntry(key.toString(), value.toString()),
+              ),
+            )
+          : const <String, String>{},
+    );
+  }
+
+  static List<String> _parseStringList(dynamic value) {
+    if (value is List) {
+      return value
+          .map((dynamic item) => item.toString().trim())
+          .where((String item) => item.isNotEmpty)
+          .toList();
+    }
+    if (value is String && value.trim().isNotEmpty) {
+      return value
+          .split(',')
+          .map((String item) => item.trim())
+          .where((String item) => item.isNotEmpty)
+          .toList();
+    }
+    return <String>[];
   }
 }

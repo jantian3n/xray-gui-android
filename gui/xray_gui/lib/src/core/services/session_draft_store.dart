@@ -4,29 +4,31 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/routing_preset.dart';
 import '../models/runtime_mode.dart';
+import '../models/vless_node.dart';
+import 'vless_uri_parser.dart';
 
 class StoredNodeDraft {
   const StoredNodeDraft({
     required this.id,
-    required this.link,
+    required this.node,
     required this.routingPreset,
     required this.runtimeMode,
   });
 
   final String id;
-  final String link;
+  final VlessNode node;
   final RoutingPreset routingPreset;
   final RuntimeMode runtimeMode;
 
   StoredNodeDraft copyWith({
     String? id,
-    String? link,
+    VlessNode? node,
     RoutingPreset? routingPreset,
     RuntimeMode? runtimeMode,
   }) {
     return StoredNodeDraft(
       id: id ?? this.id,
-      link: link ?? this.link,
+      node: node ?? this.node,
       routingPreset: routingPreset ?? this.routingPreset,
       runtimeMode: runtimeMode ?? this.runtimeMode,
     );
@@ -35,16 +37,28 @@ class StoredNodeDraft {
   Map<String, dynamic> toJson() {
     return <String, dynamic>{
       'id': id,
-      'link': link,
+      'node': node.toJson(),
       'routingPreset': routingPreset.name,
       'runtimeMode': runtimeMode.name,
     };
   }
 
   factory StoredNodeDraft.fromJson(Map<String, dynamic> json) {
+    final VlessUriParser parser = VlessUriParser();
+    final VlessNode node;
+
+    if (json['node'] is Map) {
+      node = VlessNode.fromJson(
+        Map<String, dynamic>.from(json['node'] as Map<dynamic, dynamic>),
+      );
+    } else {
+      final String legacyLink = json['link'] as String? ?? '';
+      node = parser.parse(legacyLink);
+    }
+
     return StoredNodeDraft(
       id: json['id'] as String? ?? '',
-      link: json['link'] as String? ?? '',
+      node: node,
       routingPreset: _parseRoutingPreset(json['routingPreset'] as String?),
       runtimeMode: _parseRuntimeMode(json['runtimeMode'] as String?),
     );
@@ -97,29 +111,35 @@ class SessionDraftStore {
         final Map<String, dynamic> json = Map<String, dynamic>.from(
           jsonDecode(snapshotJson) as Map<dynamic, dynamic>,
         );
-        final List<dynamic> rawNodes = json['nodes'] as List<dynamic>? ?? <dynamic>[];
+        final List<dynamic> rawNodes =
+            json['nodes'] as List<dynamic>? ?? <dynamic>[];
         final List<StoredNodeDraft> nodes = rawNodes
             .map(
               (dynamic item) => StoredNodeDraft.fromJson(
                 Map<String, dynamic>.from(item as Map<dynamic, dynamic>),
               ),
             )
-            .where((StoredNodeDraft node) => node.id.isNotEmpty && node.link.trim().isNotEmpty)
+            .where((StoredNodeDraft node) =>
+                node.id.isNotEmpty &&
+                node.node.address.trim().isNotEmpty &&
+                node.node.id.trim().isNotEmpty)
             .toList();
 
         final String? selectedNodeId = json['selectedNodeId'] as String?;
         return StoredNodeCollection(
           nodes: nodes,
-          selectedNodeId: nodes.any((StoredNodeDraft node) => node.id == selectedNodeId)
-              ? selectedNodeId
-              : (nodes.isNotEmpty ? nodes.first.id : null),
+          selectedNodeId:
+              nodes.any((StoredNodeDraft node) => node.id == selectedNodeId)
+                  ? selectedNodeId
+                  : (nodes.isNotEmpty ? nodes.first.id : null),
         );
       } catch (_) {
         await preferences.remove(_snapshotKey);
       }
     }
 
-    final StoredNodeCollection? migrated = await _migrateLegacyDraft(preferences);
+    final StoredNodeCollection? migrated =
+        await _migrateLegacyDraft(preferences);
     return migrated ??
         const StoredNodeCollection(
           nodes: <StoredNodeDraft>[],
@@ -154,9 +174,11 @@ class SessionDraftStore {
       return null;
     }
 
+    final VlessUriParser parser = VlessUriParser();
+
     final StoredNodeDraft migratedNode = StoredNodeDraft(
       id: 'legacy-${DateTime.now().microsecondsSinceEpoch}',
-      link: link,
+      node: parser.parse(link),
       routingPreset: _parseRoutingPreset(
         preferences.getString(_legacyRoutingPresetKey),
       ),

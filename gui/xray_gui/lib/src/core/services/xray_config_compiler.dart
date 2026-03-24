@@ -2,6 +2,7 @@ import '../models/profile.dart';
 import '../models/routing_preset.dart';
 import '../models/runtime_mode.dart';
 import '../models/vless_node.dart';
+import '../models/xhttp_download_settings.dart';
 
 class XrayConfigCompiler {
   Map<String, dynamic> compile(Profile profile) {
@@ -23,21 +24,87 @@ class XrayConfigCompiler {
   }
 
   void _validateNode(VlessNode node) {
-    if (node.security.toLowerCase() == 'reality') {
-      if (node.publicKey.isEmpty) {
-        throw const FormatException('REALITY requires a public key.');
-      }
-      if (node.serverName.isEmpty) {
-        throw const FormatException('REALITY requires serverName or sni.');
-      }
-      if (node.fingerprint.isEmpty) {
-        throw const FormatException('REALITY requires fingerprint.');
-      }
+    _validateSecurity(
+      label: 'Upload',
+      security: node.security,
+      serverName: node.serverName,
+      fingerprint: node.fingerprint,
+      publicKey: node.publicKey,
+    );
+
+    final String network = node.network.toLowerCase();
+    if ((network == 'xhttp' || network == 'splithttp') && node.path.isEmpty) {
+      throw const FormatException('XHTTP requires a path.');
     }
 
-    final network = node.network.toLowerCase();
-    if (network == 'xhttp' && node.path.isEmpty) {
-      throw const FormatException('XHTTP requires a path.');
+    if (node.downloadSettings != null) {
+      if (!node.isXhttp) {
+        throw const FormatException(
+          'Split download settings require XHTTP on the upload side.',
+        );
+      }
+      if (node.mode.toLowerCase() == 'stream-one') {
+        throw const FormatException(
+          'stream-one cannot be used together with XHTTP downloadSettings.',
+        );
+      }
+      _validateDownloadSettings(node.downloadSettings!);
+    }
+  }
+
+  void _validateDownloadSettings(XhttpDownloadSettings download) {
+    if (download.address.trim().isEmpty) {
+      throw const FormatException('Split download requires an address.');
+    }
+    if (download.port <= 0 || download.port > 65535) {
+      throw const FormatException('Split download requires a valid port.');
+    }
+    if (!download.isXhttp) {
+      throw const FormatException(
+        'Split download currently expects network=xhttp.',
+      );
+    }
+    if (download.path.trim().isEmpty) {
+      throw const FormatException('Split download XHTTP requires a path.');
+    }
+
+    _validateSecurity(
+      label: 'Download',
+      security: download.security,
+      serverName: download.serverName,
+      fingerprint: download.fingerprint,
+      publicKey: download.publicKey,
+    );
+  }
+
+  void _validateSecurity({
+    required String label,
+    required String security,
+    required String serverName,
+    required String fingerprint,
+    required String publicKey,
+  }) {
+    final String normalizedSecurity = security.toLowerCase();
+    if (normalizedSecurity == 'reality') {
+      if (publicKey.isEmpty) {
+        throw FormatException('$label REALITY requires a public key.');
+      }
+      if (serverName.isEmpty) {
+        throw FormatException('$label REALITY requires serverName or sni.');
+      }
+      if (fingerprint.isEmpty) {
+        throw FormatException('$label REALITY requires fingerprint.');
+      }
+      return;
+    }
+
+    if (normalizedSecurity == 'tls') {
+      if (serverName.isEmpty) {
+        throw FormatException('$label TLS requires serverName or sni.');
+      }
+      if (fingerprint.isEmpty) {
+        throw FormatException('$label TLS requires fingerprint.');
+      }
     }
   }
 
@@ -177,6 +244,13 @@ class XrayConfigCompiler {
     return _removeEmpty(<String, dynamic>{
       'network': node.network,
       'security': node.security,
+      'tlsSettings': node.isTls
+          ? _removeEmpty(<String, dynamic>{
+              'serverName': node.serverName,
+              'fingerprint': node.fingerprint,
+              'alpn': node.alpn,
+            })
+          : null,
       'realitySettings': node.isReality
           ? _removeEmpty(<String, dynamic>{
               'serverName': node.serverName,
@@ -191,6 +265,43 @@ class XrayConfigCompiler {
               'host': node.host,
               'path': node.path,
               'mode': node.mode,
+              'downloadSettings': node.downloadSettings == null
+                  ? null
+                  : _buildDownloadSettings(node.downloadSettings!),
+            })
+          : null,
+    });
+  }
+
+  Map<String, dynamic> _buildDownloadSettings(
+    XhttpDownloadSettings download,
+  ) {
+    return _removeEmpty(<String, dynamic>{
+      'address': download.address,
+      'port': download.port,
+      'network': download.network,
+      'security': download.security,
+      'tlsSettings': download.isTls
+          ? _removeEmpty(<String, dynamic>{
+              'serverName': download.serverName,
+              'fingerprint': download.fingerprint,
+              'alpn': download.alpn,
+            })
+          : null,
+      'realitySettings': download.isReality
+          ? _removeEmpty(<String, dynamic>{
+              'serverName': download.serverName,
+              'fingerprint': download.fingerprint,
+              'publicKey': download.publicKey,
+              'shortId': download.shortId,
+              'spiderX': download.spiderX,
+            })
+          : null,
+      'xhttpSettings': download.isXhttp
+          ? _removeEmpty(<String, dynamic>{
+              'host': download.host,
+              'path': download.path,
+              'mode': download.mode,
             })
           : null,
     });

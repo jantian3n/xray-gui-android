@@ -1,6 +1,6 @@
 # Build Android APK On macOS
 
-This is the intended build path for this repository on macOS once Flutter, Go, and Android tooling are installed.
+This is the intended build path for the Android client on macOS once Flutter, Go, and Android tooling are installed.
 
 ## Required Tools
 
@@ -22,14 +22,36 @@ gomobile version
 adb version
 ```
 
-## 1. Prepare Flutter Dependencies
+## 1. Generate The Flutter Android Host
 
 ```bash
-cd gui/xray_gui
+cd /Users/yan/Desktop/xray/Xray-core/gui/xray_gui
+flutter create --platforms android .
 flutter pub get
 ```
 
-## 2. Build The Go Android Library
+## 2. Merge The Native Android Template
+
+Copy:
+
+```text
+gui/xray_gui/android_template/app/src/main/...
+-> gui/xray_gui/android/app/src/main/...
+```
+
+Or use the helper script:
+
+```bash
+bash ./gui/xray_gui/scripts/merge_android_template.sh
+```
+
+If your generated package name is different from `com.example.xray_gui`, rename:
+
+- Kotlin package declarations
+- manifest references
+- `run-as` package names used during debugging
+
+## 3. Build The Go Android Library
 
 From the repository root:
 
@@ -52,13 +74,13 @@ The Go binding package is:
 mobile/xraymobile
 ```
 
-## 3. Import The AAR Into The Android App
+## 4. Import The AAR Into The Flutter Android Host
 
 Create a libs directory if needed:
 
 ```bash
-mkdir -p gui/xray_gui/android/app/libs
-cp build/xraymobile.aar gui/xray_gui/android/app/libs/
+mkdir -p /Users/yan/Desktop/xray/Xray-core/gui/xray_gui/android/app/libs
+cp /Users/yan/Desktop/xray/Xray-core/build/xraymobile.aar /Users/yan/Desktop/xray/Xray-core/gui/xray_gui/android/app/libs/
 ```
 
 Or use the helper script:
@@ -85,9 +107,9 @@ dependencies {
 }
 ```
 
-The Android runtime bridge uses reflection to detect the generated gomobile classes, so after the AAR is added you usually do not need to change Kotlin imports manually.
+The current Android template uses reflection to detect the generated gomobile classes, so after the AAR is added you usually do not need to change Kotlin imports manually.
 
-## 4. Build A Debug APK
+## 5. Build A Debug APK
 
 If you use a local HTTP/SOCKS proxy in your shell environment, prefer the helper script because it clears proxy variables before invoking Flutter and Gradle:
 
@@ -98,7 +120,7 @@ bash ./gui/xray_gui/scripts/build_android_apk.sh --debug
 Direct Flutter invocation also works when your network environment is clean:
 
 ```bash
-cd gui/xray_gui
+cd /Users/yan/Desktop/xray/Xray-core/gui/xray_gui
 flutter build apk --debug
 ```
 
@@ -108,49 +130,46 @@ Expected output location:
 build/app/outputs/flutter-apk/app-debug.apk
 ```
 
-## 5. Build A Release APK
+## 6. Build A Release APK
 
-For the default arm64-only release build:
-
-```bash
-bash ./gui/xray_gui/scripts/build_android_apk.sh --release
-```
-
-Expected output location:
-
-```text
-build/app/outputs/flutter-apk/app-release.apk
-```
-
-If you want multiple ABI-specific release APKs instead:
+Once signing is configured:
 
 ```bash
 bash ./gui/xray_gui/scripts/build_android_apk.sh --release --split-per-abi
 ```
 
-## 6. Install On A Device
+Expected output location:
 
-```bash
-adb install -r gui/xray_gui/build/app/outputs/flutter-apk/app-debug.apk
+```text
+build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
+build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+build/app/outputs/flutter-apk/app-x86_64-release.apk
 ```
 
-## 7. Alternative Gradle Build
+## 7. Install On A Device
+
+```bash
+adb install -r /Users/yan/Desktop/xray/Xray-core/gui/xray_gui/build/app/outputs/flutter-apk/app-debug.apk
+```
+
+## 8. Alternative Gradle Build
 
 After the Android host exists, you can also build directly with Gradle:
 
 ```bash
-cd gui/xray_gui/android
+cd /Users/yan/Desktop/xray/Xray-core/gui/xray_gui/android
 ./gradlew assembleDebug
 ```
 
 Android documentation says debug APKs can also be built with `assembleDebug`, and installed with `installDebug`.
 
-## Current Status
+## Current Limitation
 
 In the current repository snapshot:
 
 - the Flutter shell is present;
-- the Android host is checked in;
+- the Android native template is present;
 - the Go mobile runtime wrapper is present;
-- the Kotlin runtime already attempts to load and call the generated `xraymobile.aar` API through reflection.
-- full-tunnel VPN startup and geodata bootstrap are implemented.
+- the Kotlin template already attempts to load and call the generated `xraymobile.aar` API through reflection.
+
+What is still missing is end-to-end traffic testing with a real `xraymobile.aar` build wired into the Android runtime.
