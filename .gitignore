@@ -1,0 +1,24 @@
+.DS_Store
+
+# Go
+bin/
+pkg/
+build/
+
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Android / Gradle
+gui/xray_gui/android/.gradle/
+gui/xray_gui/android/local.properties
+gui/xray_gui/android/app/libs/
+
