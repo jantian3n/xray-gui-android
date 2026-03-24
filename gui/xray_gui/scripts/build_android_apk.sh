@@ -28,3 +28,15 @@ if [ "${has_target_platform}" = "true" ]; then
 else
   flutter build apk --target-platform android-arm64 "$@"
 fi
+
+output_dir="${project_dir}/build/app/outputs/flutter-apk"
+
+if [ -d "${output_dir}" ]; then
+  for apk_path in "${output_dir}"/app-*.apk; do
+    if [ -f "${apk_path}" ]; then
+      renamed_path="${output_dir}/note-${apk_path##*/app-}"
+      mv -f "${apk_path}" "${renamed_path}"
+      printf 'Renamed APK to %s\n' "${renamed_path}"
+    fi
+  done
+fi
