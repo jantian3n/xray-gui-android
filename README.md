@@ -2,6 +2,23 @@
 
 Android-first Xray GUI client built with Flutter, Kotlin, `VpnService`, and a gomobile-wrapped Xray runtime.
 
+## Recommended Companion Script
+
+This Android GUI is recommended to be used together with
+[`jantian3n/xray-vless-xhttp-multimode-installer`](https://github.com/jantian3n/xray-vless-xhttp-multimode-installer).
+
+The app can import the script outputs for:
+
+- single `vless://` XHTTP + REALITY links
+- script-style `client_outbound.json`
+- `client_split_patch.json` for split XHTTP modes
+
+Use this command on your server to fetch and run the companion XHTTP deployment script:
+
+```bash
+wget -O deploy_vless_xhttp.sh https://raw.githubusercontent.com/jantian3n/xray-vless-xhttp-multimode-installer/main/deploy_vless_xhttp.sh && chmod +x deploy_vless_xhttp.sh && sudo bash deploy_vless_xhttp.sh
+```
+
 ## What Is In This Repo
 
 - Flutter UI for node import, node list management, routing presets, and logs
@@ -46,4 +63,3 @@ The default Android build target is `arm64-v8a`.
 - The app currently targets Android first.
 - `mobile/xraymobile` depends on the published `github.com/xtls/xray-core` module.
 - The generated `xraymobile.aar` is intentionally not committed. Build it locally before packaging the app.
-

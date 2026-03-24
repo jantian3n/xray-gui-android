@@ -2,6 +2,10 @@
 
 Android-first Flutter shell for an Xray-based GUI client.
 
+This client is recommended to be used together with
+[`jantian3n/xray-vless-xhttp-multimode-installer`](https://github.com/jantian3n/xray-vless-xhttp-multimode-installer)
+for XHTTP deployment and node export.
+
 ## Current Status
 
 This directory contains the initial app structure for:
