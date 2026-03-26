@@ -1,5 +1,0 @@
-<resources>
-    <string name="notification_channel_name">Xray VPN</string>
-    <string name="notification_title">Xray Android</string>
-    <string name="notification_text">Foreground VPN service active for %1$s</string>
-</resources>
