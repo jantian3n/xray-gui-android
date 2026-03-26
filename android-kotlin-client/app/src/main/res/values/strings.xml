@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">网工</string>
+    <string name="notification_channel_name">Xray VPN</string>
+    <string name="notification_channel_description">保持 VPN 连接状态常驻显示，并支持快速断开。</string>
+    <string name="notification_title">Xray Android</string>
+    <string name="notification_text_running">VPN 运行中：%1$s</string>
+    <string name="notification_action_disconnect">断开</string>
+</resources>
