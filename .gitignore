@@ -22,3 +22,5 @@ gui/xray_gui/android/.gradle/
 gui/xray_gui/android/local.properties
 gui/xray_gui/android/app/libs/
 
+# Local scratch
+material-web-main/
