@@ -5,7 +5,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -26,7 +25,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -58,7 +56,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.xray_gui_kotlin.model.Profile
 import com.example.xray_gui_kotlin.model.RoutingPreset
-import com.example.xray_gui_kotlin.model.RuntimeMode
 
 private enum class SettingsSubPage {
     MAIN,
@@ -128,7 +125,6 @@ fun AppScreen(
                         HomeProfileEditorPage(
                             selectedProfile = uiState.selectedProfile,
                             onBack = { editingProfileId = null },
-                            onUpdateRuntimeMode = viewModel::updateSelectedRuntimeMode,
                             onSaveProfileNode = viewModel::updateSelectedProfileNodeAdvanced,
                         )
                     }
@@ -673,7 +669,6 @@ private fun SettingsLogPage(
 private fun HomeProfileEditorPage(
     selectedProfile: Profile?,
     onBack: () -> Unit,
-    onUpdateRuntimeMode: (RuntimeMode) -> Unit,
     onSaveProfileNode: (
         profileName: String,
         address: String,
@@ -720,7 +715,6 @@ private fun HomeProfileEditorPage(
         )
         ProfileEditorContent(
             selected = selectedProfile,
-            onUpdateRuntimeMode = onUpdateRuntimeMode,
             onSaveProfileNode = onSaveProfileNode,
         )
     }
@@ -757,7 +751,6 @@ private fun SecondaryPageHeader(
 @Composable
 private fun ProfileEditorContent(
     selected: Profile,
-    onUpdateRuntimeMode: (RuntimeMode) -> Unit,
     onSaveProfileNode: (
         profileName: String,
         address: String,
@@ -811,26 +804,6 @@ private fun ProfileEditorContent(
         verticalArrangement = Arrangement.spacedBy(14.dp),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
     ) {
-        item {
-            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("运行模式", style = MaterialTheme.typography.titleMedium)
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        RuntimeMode.entries.forEach { mode ->
-                            FilterChip(
-                                selected = selected.runtimeMode == mode,
-                                onClick = { onUpdateRuntimeMode(mode) },
-                                label = { Text(mode.label) },
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
         item {
             ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {

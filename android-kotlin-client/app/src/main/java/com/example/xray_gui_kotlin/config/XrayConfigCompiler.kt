@@ -2,7 +2,6 @@ package com.example.xray_gui_kotlin.config
 
 import com.example.xray_gui_kotlin.model.Profile
 import com.example.xray_gui_kotlin.model.RoutingPreset
-import com.example.xray_gui_kotlin.model.RuntimeMode
 import com.example.xray_gui_kotlin.model.VlessNode
 import com.example.xray_gui_kotlin.model.XhttpDownloadSettings
 
@@ -176,21 +175,17 @@ class XrayConfigCompiler {
             ),
         )
 
-        return if (profile.runtimeMode == RuntimeMode.VPN) {
-            listOf(
-                mapOf(
-                    "tag" to "tun-in",
-                    "port" to 0,
-                    "protocol" to "tun",
-                    "settings" to mapOf(
-                        "name" to "xray0",
-                        "MTU" to profile.tunMtu,
-                    ),
+        return listOf(
+            mapOf(
+                "tag" to "tun-in",
+                "port" to 0,
+                "protocol" to "tun",
+                "settings" to mapOf(
+                    "name" to "xray0",
+                    "MTU" to profile.tunMtu,
                 ),
-            ) + localInbounds
-        } else {
-            localInbounds
-        }
+            ),
+        ) + localInbounds
     }
 
     private fun buildOutbounds(node: VlessNode): List<Map<String, Any?>> {

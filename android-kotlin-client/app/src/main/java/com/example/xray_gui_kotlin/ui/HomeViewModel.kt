@@ -8,7 +8,6 @@ import com.example.xray_gui_kotlin.data.ProfileSnapshot
 import com.example.xray_gui_kotlin.data.ProfileStore
 import com.example.xray_gui_kotlin.model.Profile
 import com.example.xray_gui_kotlin.model.RoutingPreset
-import com.example.xray_gui_kotlin.model.RuntimeMode
 import com.example.xray_gui_kotlin.model.XhttpDownloadSettings
 import com.example.xray_gui_kotlin.parser.NodeImporter
 import com.example.xray_gui_kotlin.runtime.GeoDataUpdater
@@ -201,20 +200,6 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun updateSelectedRuntimeMode(mode: RuntimeMode) {
-        val selected = _uiState.value.selectedProfile ?: return
-        viewModelScope.launch {
-            val updated = _uiState.value.profiles.map {
-                if (it.id == selected.id) it.copy(runtimeMode = mode) else it
-            }
-            saveSnapshot(
-                profiles = updated,
-                selectedProfileId = selected.id,
-            )
-            emitMessage("运行模式已更新为 ${mode.label}")
-        }
-    }
-
     fun updateSelectedProfileNode(
         profileName: String,
         address: String,
@@ -335,7 +320,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        if (profile.runtimeMode.name == "VPN" && requireVpnPermission) {
+        if (requireVpnPermission) {
             _effects.tryEmit(HomeUiEffect.RequestVpnPermission)
             return
         }

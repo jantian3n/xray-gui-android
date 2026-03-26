@@ -5,7 +5,6 @@ data class Profile(
     val name: String,
     val node: VlessNode,
     val routingPreset: RoutingPreset = RoutingPreset.CN_DIRECT,
-    val runtimeMode: RuntimeMode = RuntimeMode.VPN,
     val socksPort: Int = 10808,
     val httpPort: Int = 10809,
     val tunMtu: Int = 1500,
@@ -14,7 +13,6 @@ data class Profile(
         "id" to id,
         "name" to name,
         "routingPreset" to routingPreset.name,
-        "runtimeMode" to runtimeMode.name,
         "socksPort" to socksPort,
         "httpPort" to httpPort,
         "tunMtu" to tunMtu,
@@ -25,7 +23,6 @@ data class Profile(
         fun fromNode(
             node: VlessNode,
             routingPreset: RoutingPreset = RoutingPreset.CN_DIRECT,
-            runtimeMode: RuntimeMode = RuntimeMode.VPN,
         ): Profile {
             val safeName = node.name.trim().ifBlank { "${node.address}:${node.port}" }
             return Profile(
@@ -33,7 +30,6 @@ data class Profile(
                 name = safeName,
                 node = node,
                 routingPreset = routingPreset,
-                runtimeMode = runtimeMode,
             )
         }
 
@@ -45,7 +41,6 @@ data class Profile(
                 name = source["name"].toStringOrEmpty(),
                 node = VlessNode.fromMap(nodeMap as Map<String, Any?>),
                 routingPreset = source["routingPreset"].toRoutingPreset(),
-                runtimeMode = source["runtimeMode"].toRuntimeMode(),
                 socksPort = source["socksPort"].toIntOr(10808),
                 httpPort = source["httpPort"].toIntOr(10809),
                 tunMtu = source["tunMtu"].toIntOr(1500),
@@ -72,8 +67,4 @@ private fun Any?.toIntOr(default: Int): Int {
 
 private fun Any?.toRoutingPreset(): RoutingPreset {
     return RoutingPreset.entries.firstOrNull { it.name == this?.toString() } ?: RoutingPreset.CN_DIRECT
-}
-
-private fun Any?.toRuntimeMode(): RuntimeMode {
-    return RuntimeMode.entries.firstOrNull { it.name == this?.toString() } ?: RuntimeMode.VPN
 }
