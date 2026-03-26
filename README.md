@@ -1,13 +1,13 @@
-# Xray GUI Android (Pure Kotlin)
+# Xray GUI Android（纯 Kotlin 版）
 
-This repository now focuses on the pure Kotlin Android client:
+本仓库当前聚焦于纯 Kotlin 的 Android 客户端，主要能力包括：
 
-- Jetpack Compose UI
-- Android `VpnService` runtime control
-- VLESS/XHTTP import and editing
-- built-in routing presets and logs
+- Jetpack Compose 界面
+- 基于 Android `VpnService` 的运行控制
+- VLESS / XHTTP 节点导入与编辑
+- 内置分流策略与日志查看
 
-## Repository Layout
+## 仓库结构
 
 ```text
 android-kotlin-client/
@@ -15,26 +15,26 @@ apk/
 docs/
 ```
 
-## Build APK
+## 构建 APK
 
 ```bash
 cd android-kotlin-client
 ./gradlew :app:assembleDebug
 ```
 
-Debug APK output:
+Debug APK 产物路径：
 
 ```text
 android-kotlin-client/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-## Docs
+## 文档
 
-- Pure Kotlin migration notes: [docs/pure-kotlin-migration-phase1.md](docs/pure-kotlin-migration-phase1.md)
+- 纯 Kotlin 迁移说明：[docs/pure-kotlin-migration-phase1.md](docs/pure-kotlin-migration-phase1.md)
 
-## Test APK
+## 测试 APK
 
-Current debug package in repo:
+仓库当前提供的 Debug 包：
 
 ```text
 apk/xray-kotlin-client-debug-20260326.apk
